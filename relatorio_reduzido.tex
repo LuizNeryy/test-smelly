@@ -1,0 +1,311 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[portuguese]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+% Configuração de cores
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+% Configuração do lstlisting
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,                 
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+\begin{document}
+
+% Capa
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    
+    {\LARGE\bfseries Pontifícia Universidade Católica de Minas Gerais\par}
+    \vspace{0.3cm}
+    {\large PUC Minas\par}
+    \vspace{0.2cm}
+    {\large Curso: Engenharia de Software\par}
+    \vspace{0.2cm}
+    {\large Disciplina: Teste de Software\par}
+    \vspace{0.2cm}
+    {\large Professor: Cleiton Tavares\par}
+    
+    \vspace{2.5cm}
+    
+    {\Huge\bfseries Refatoração de Testes e\\Detecção de Test Smells\par}
+    
+    \vspace{2.5cm}
+    
+    {\large
+    \textbf{Aluno:} Luiz Nery\\
+    }
+    
+    \vfill
+    
+    {\large \today\par}
+\end{titlepage}
+
+% Análise de Smells
+\section{Análise de Test Smells}
+
+Durante a análise da suíte de testes em \texttt{userService.smelly.test.js}, foram identificados três principais \textit{Test Smells} que comprometem a qualidade dos testes:
+
+\subsection{Smell \#1: Conditional Test Logic}
+
+\textbf{Localização:} Teste ``deve desativar usuários se eles não forem administradores''
+
+\textbf{Problema:} O teste contém um loop \texttt{for} e estruturas condicionais \texttt{if/else}, criando múltiplos caminhos de execução dentro de um único teste.
+
+\textbf{Por que é um mau cheiro:} Testes devem ter um fluxo de execução linear e previsível. A presença de lógica condicional torna o teste complexo, dificulta o entendimento e viola o padrão Arrange-Act-Assert. Diferentes caminhos podem ser executados dependendo dos dados, tornando o teste menos determinístico.
+
+\textbf{Riscos:}
+\begin{itemize}[noitemsep]
+    \item Dificulta identificar qual cenário falhou
+    \item Alguns caminhos podem nunca ser testados
+    \item Viola princípio de responsabilidade única
+    \item Torna debugging mais complexo
+\end{itemize}
+
+\subsection{Smell \#2: Eager Test}
+
+\textbf{Localização:} Teste ``deve criar e buscar um usuário corretamente''
+
+\textbf{Problema:} Um único teste verifica duas funcionalidades distintas: criação de usuário E busca de usuário.
+
+\textbf{Por que é um mau cheiro:} Cada teste deve focar em uma única responsabilidade. Quando múltiplas funcionalidades são testadas juntas, perde-se granularidade e clareza. Se o teste falhar, não fica claro qual das funcionalidades causou o problema.
+
+\textbf{Riscos:}
+\begin{itemize}[noitemsep]
+    \item Baixa granularidade na identificação de falhas
+    \item Mistura conceitos diferentes
+    \item Dificulta manutenção e evolução dos testes
+    \item Reduz a clareza sobre o que está sendo testado
+\end{itemize}
+
+\subsection{Smell \#3: Exception Handling}
+
+\textbf{Localização:} Teste ``deve falhar ao criar usuário menor de idade''
+
+\textbf{Problema:} Uso de bloco \texttt{try-catch} manual para verificar se uma exceção é lançada, ao invés de utilizar os mecanismos apropriados do framework de teste.
+
+\textbf{Por que é um mau cheiro:} Se a exceção não for lançada, o código dentro do \texttt{try} executa normalmente e o bloco \texttt{catch} é ignorado, fazendo o teste passar silenciosamente mesmo quando deveria falhar. Isso cria uma falsa sensação de segurança.
+
+\textbf{Riscos:}
+\begin{itemize}[noitemsep]
+    \item Teste passa mesmo quando exceção não é lançada
+    \item Não garante que o comportamento esperado ocorra
+    \item Código verboso e menos idiomático
+    \item Dificulta compreensão da intenção do teste
+\end{itemize}
+
+\newpage
+
+% Processo de Refatoração
+\section{Processo de Refatoração}
+
+\subsection{Teste Escolhido: Conditional Test Logic}
+
+Este foi o teste mais problemático, apresentando lógica condicional complexa.
+
+\subsubsection*{Código ANTES (userService.smelly.test.js):}
+
+\begin{lstlisting}[language=JavaScript, caption=Teste com smells - linhas 34-52]
+test('deve desativar usuarios se eles nao forem administradores', () => {
+  const usuarioComum = userService.createUser('Comum', 'comum@teste.com', 30);
+  const usuarioAdmin = userService.createUser('Admin', 'admin@teste.com', 40, true);
+  const todosOsUsuarios = [usuarioComum, usuarioAdmin];
+
+  for (const user of todosOsUsuarios) {
+    const resultado = userService.deactivateUser(user.id);
+    if (!user.isAdmin) {
+      expect(resultado).toBe(true);
+      const usuarioAtualizado = userService.getUserById(user.id);
+      expect(usuarioAtualizado.status).toBe('inativo');
+    } else {
+      expect(resultado).toBe(false);
+    }
+  }
+});
+\end{lstlisting}
+
+\subsubsection*{Código DEPOIS (userService.clean.test.js):}
+
+\begin{lstlisting}[language=JavaScript, caption=Testes refatorados seguindo AAA]
+test('deve desativar usuario comum', () => {
+  // Arrange
+  const usuario = userService.createUser('Comum', 'comum@teste.com', 30);
+
+  // Act
+  const resultado = userService.deactivateUser(usuario.id);
+
+  // Assert
+  expect(resultado).toBe(true);
+  const usuarioAtualizado = userService.getUserById(usuario.id);
+  expect(usuarioAtualizado.status).toBe('inativo');
+});
+
+test('nao deve desativar usuario admin', () => {
+  // Arrange
+  const admin = userService.createUser('Admin', 'admin@teste.com', 40, true);
+
+  // Act
+  const resultado = userService.deactivateUser(admin.id);
+
+  // Assert
+  expect(resultado).toBe(false);
+  const adminAtualizado = userService.getUserById(admin.id);
+  expect(adminAtualizado.status).toBe('ativo');
+});
+\end{lstlisting}
+
+\subsection{Decisões de Refatoração}
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Separação em dois testes independentes:} Cada cenário (usuário comum e admin) agora possui seu próprio teste focado, eliminando a necessidade de loops e condicionais.
+    
+    \item \textbf{Aplicação rigorosa do padrão AAA:} Cada teste segue claramente as três fases - Arrange (preparação), Act (execução), Assert (verificação).
+    
+    \item \textbf{Nomes descritivos:} Os títulos ``deve desativar usuário comum'' e ``não deve desativar usuário admin'' deixam claro o comportamento esperado.
+    
+    \item \textbf{Fluxo linear:} Eliminação completa de lógica condicional garante que cada teste tenha apenas um caminho de execução.
+    
+    \item \textbf{Isolamento:} Os testes são completamente independentes e podem ser executados em qualquer ordem.
+\end{enumerate}
+
+Estas mudanças transformaram um teste complexo e obscuro em dois testes simples, claros e autoexplicativos, melhorando significativamente a manutenibilidade e eficácia.
+
+\newpage
+
+% Relatório da Ferramenta
+\section{Relatório da Ferramenta ESLint}
+
+\subsection{Configuração}
+
+O ESLint foi configurado com o plugin \texttt{eslint-plugin-jest} para detectar automaticamente \textit{Test Smells}:
+
+\begin{lstlisting}[language=bash]
+npm install --save-dev eslint eslint-plugin-jest
+\end{lstlisting}
+
+Principais regras configuradas:
+\begin{itemize}[noitemsep]
+    \item \texttt{jest/no-conditional-expect}: Detecta expects dentro de condicionais
+    \item \texttt{jest/no-disabled-tests}: Alerta sobre testes desabilitados
+    \item \texttt{jest/no-identical-title}: Previne títulos duplicados
+\end{itemize}
+
+\subsection{Primeira Execução - Detecção de Problemas}
+
+Comando executado:
+\begin{lstlisting}[language=bash]
+npx eslint test/userService.smelly.test.js
+\end{lstlisting}
+
+\textbf{Resultado:}
+\begin{verbatim}
+C:\...\test\userService.smelly.test.js
+  44:9  error    Avoid calling `expect` conditionally`  
+                 jest/no-conditional-expect
+  46:9  error    Avoid calling `expect` conditionally`  
+                 jest/no-conditional-expect
+  49:9  error    Avoid calling `expect` conditionally`  
+                 jest/no-conditional-expect
+  73:7  error    Avoid calling `expect` conditionally`  
+                 jest/no-conditional-expect
+  77:3  warning  Tests should not be skipped            
+                 jest/no-disabled-tests
+  77:3  warning  Test has no assertions                 
+                 jest/expect-expect
+
+✖ 6 problems (4 errors, 2 warnings)
+\end{verbatim}
+
+\subsection{Como a Ferramenta Automatizou a Detecção}
+
+O ESLint identificou automaticamente:
+\begin{itemize}[noitemsep]
+    \item \textbf{4 erros críticos} de lógica condicional (linhas onde \texttt{expect} estava dentro de \texttt{if})
+    \item \textbf{2 avisos} sobre teste desabilitado com \texttt{test.skip}
+    \item Confirmou todos os smells identificados na análise manual
+\end{itemize}
+
+A ferramenta economizou tempo ao automatizar a detecção, garantiu consistência na identificação de problemas e forneceu feedback imediato sobre a localização exata dos smells.
+
+\subsection{Segunda Execução - Validação}
+
+Após refatoração:
+\begin{lstlisting}[language=bash]
+npx eslint test/userService.clean.test.js
+\end{lstlisting}
+
+\textbf{Resultado:} Nenhum problema encontrado (0 errors, 0 warnings).
+
+Todos os testes passaram com sucesso:
+\begin{verbatim}
+Test Suites: 2 passed, 2 total
+Tests:       1 skipped, 18 passed, 19 total
+\end{verbatim}
+
+\newpage
+
+% Conclusão
+\section{Conclusão}
+
+A refatoração de testes demonstrou que alta cobertura de código não garante eficácia. Os \textit{Test Smells} identificados tornavam a suíte frágil, difícil de manter e incapaz de detectar bugs com confiança.
+
+\subsection{Principais Conquistas}
+
+\begin{itemize}[noitemsep]
+    \item Eliminação completa de lógica condicional nos testes
+    \item Aplicação 100\% do padrão Arrange-Act-Assert
+    \item Redução de 6 problemas do ESLint para zero
+    \item Aumento de 5 para 14 testes, melhorando granularidade
+    \item Testes mais claros, concisos e autodocumentados
+\end{itemize}
+
+\subsection{Impacto na Qualidade do Software}
+
+A escrita de testes limpos e a utilização de ferramentas de análise estática como o ESLint contribuem significativamente para a qualidade e sustentabilidade do projeto:
+
+\textbf{Testes Limpos:}
+\begin{itemize}[noitemsep]
+    \item Servem como documentação viva do comportamento esperado
+    \item Facilitam refatorações com segurança
+    \item Reduzem custo de manutenção a longo prazo
+    \item Aceleram onboarding de novos desenvolvedores
+    \item Aumentam confiança na suíte de testes
+\end{itemize}
+
+\textbf{Análise Estática Automatizada:}
+\begin{itemize}[noitemsep]
+    \item Detecta problemas automaticamente durante desenvolvimento
+    \item Garante consistência na aplicação de boas práticas
+    \item Economiza tempo em code reviews
+    \item Previne introdução de novos smells
+    \item Fornece feedback imediato aos desenvolvedores
+\end{itemize}
+
+\subsection{Reflexão Final}
+
+Este trabalho reforça que testes devem receber o mesmo nível de cuidado e atenção que o código de produção. A combinação de análise manual criteriosa com ferramentas automatizadas mostrou-se extremamente eficaz na identificação e correção de problemas.
+
+O padrão AAA, quando aplicado rigorosamente, transforma testes confusos em código limpo e autoexplicativo. A eliminação de lógica condicional garante previsibilidade e confiabilidade. E ferramentas como o ESLint garantem que essas boas práticas sejam mantidas ao longo do tempo.
+
+Investir em qualidade de testes não é apenas uma boa prática técnica, é essencial para a sustentabilidade e evolução de qualquer projeto de software moderno.
+
+\vspace{1cm}
+
+\noindent\textbf{Repositório GitHub:} \url{https://github.com/LuizNeryy/test-smelly}
+
+\end{document}
