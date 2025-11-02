@@ -1,3 +1,18 @@
 node_modules/
 coverage/
 package-lock.json
+
+# Arquivos auxiliares (não são parte do código do projeto)
+ANALISE_TEST_SMELLS.md
+CHECKLIST_FINAL.md
+PRINTS_RELATORIO.md
+RESUMO_RELATORIO.md
+
+# Relatórios LaTeX (você vai submeter o PDF separadamente)
+relatorio_completo.tex
+relatorio_reduzido.tex
+*.pdf
+*.aux
+*.log
+*.out
+*.toc
